@@ -1,0 +1,5 @@
+streamlit
+httpx
+python-dotenv
+PyMuPDF  # for PDF text extraction
+supabase
