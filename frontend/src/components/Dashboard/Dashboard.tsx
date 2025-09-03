@@ -59,6 +59,9 @@ const handleLogout = async () => {
     return {
       fullSummary: summary.summary, // Use the actual summary as the full summary
       keyPoints: summary.summary.split('.').filter(point => point.trim().length > 20).slice(0, 5).map(point => point.trim() + '.'),
+      readingTime: "",
+      pageCount: 1,// Random page count - you can get this from PDF metadata
+      difficulty: ""
     };
   };
 
