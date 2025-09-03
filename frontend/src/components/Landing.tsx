@@ -104,13 +104,7 @@ const Landing = () => {
               >
                 Get Started for Free
               </Button>
-              <Button 
-                size="lg" 
-                variant="outline"
-                className="border-black/30 text-black hover:bg-black/10 px-8 py-6 text-lg font-medium"
-              >
-                Watch Demo
-              </Button>
+            
             </div>
           </div>
         </div>
@@ -181,7 +175,7 @@ const Landing = () => {
             Ready to Learn Smarter, Not Harder?
           </h2>
           <p className="text-xl text-white/90 mb-8">
-            Join thousands of students who are already using PDepth to ace their studies. Start for free today!
+            Join our community of students who are already using PDepth to ace their studies. Start for free today!
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button 
@@ -191,13 +185,7 @@ const Landing = () => {
             >
               Upload Your First PDF
             </Button>
-            <Button 
-              size="lg"
-              variant="outline"
-              className="border-white/30 text-white hover:bg-white/10 px-8 py-6 text-lg font-medium"
-            >
-              Watch Demo
-            </Button>
+      
           </div>
         </div>
       </section>
@@ -220,7 +208,7 @@ const Landing = () => {
             </div>
           </div>
           <div className="mt-8 pt-8 border-t text-center text-muted-foreground">
-            <p>&copy; 2024 PDepth. All rights reserved. Made for students worldwide.</p>
+            <p>&copy; 2025 PDepth. All rights reserved. Made for students worldwide.</p>
           </div>
         </div>
       </footer>

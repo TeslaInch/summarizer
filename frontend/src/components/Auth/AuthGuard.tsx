@@ -1,33 +1,46 @@
+// authguard.tsx
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "@/supabaseClient";
 
 const AuthGuard = ({ children }: { children: JSX.Element }) => {
   const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState<any>(null);
+  const [authenticated, setAuthenticated] = useState(false);
 
   useEffect(() => {
-    const getSession = async () => {
+    // Check initial session
+    const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
-      setSession(data.session);
+      setAuthenticated(!!data.session);
       setLoading(false);
     };
 
-    getSession();
+    checkSession();
 
-    // Listen for auth state changes to update session
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
+    // Listen for auth changes
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setAuthenticated(!!session);
+        setLoading(false);
+      }
+    );
 
     return () => {
       listener.subscription.unsubscribe();
     };
   }, []);
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p>Loading...</p>
+      </div>
+    );
+  }
 
-  if (!session) return <Navigate to="/login" replace />;
+  if (!authenticated) {
+    return <Navigate to="/login" replace />;
+  }
 
   return children;
 };

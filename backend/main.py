@@ -1,116 +1,74 @@
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
-import httpx
+# main.py
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi.responses import JSONResponse
 import os
 import asyncio
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from transformers import BartTokenizer
-from concurrent.futures import ProcessPoolExecutor
-from supabase_client import supabase
-from auth_utils import verify_token
 from utils.pdf_utils import extract_text_from_pdf
 from fastapi.middleware.cors import CORSMiddleware
 from utils.youtube_utils import recommend_videos_from_summary
-from typing import Dict, List, Any
-import json
+from typing import Dict, List, Any, Optional
 import time
+import logging
+from contextlib import asynccontextmanager
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.middleware import SlowAPIMiddleware
+from llm.fallback import generate_summary as llm_generate_summary
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-app = FastAPI()
+# -----------------------------
+# User Quota: 5 PDFs/hour per IP
+# -----------------------------
+user_pdf_count = {}
 
-HF_API_KEY = os.getenv("HF_API_KEY")
-MODEL_ID = "facebook/bart-large-cnn"
-tokenizer = BartTokenizer.from_pretrained(MODEL_ID)
+def is_allowed_upload(ip: str) -> bool:
+    now = time.time()
+    if ip not in user_pdf_count:
+        user_pdf_count[ip] = {"count": 0, "reset_time": now + 3600}
+    elif now > user_pdf_count[ip]["reset_time"]:
+        user_pdf_count[ip] = {"count": 0, "reset_time": now + 3600}
+    return user_pdf_count[ip]["count"] < 5
 
-# Store processed PDFs in memory (use database in production)
-processed_pdfs: Dict[str, Dict[str, Any]] = {}
+def increment_pdf_count(ip: str):
+    if ip in user_pdf_count:
+        user_pdf_count[ip]["count"] += 1
 
-# Enable CORS
+# -----------------------------
+# Lifespan
+# -----------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting PDF Processing API...")
+    yield
+    logger.info("Shutting down...")
+
+app = FastAPI(title="PDF Processing API", lifespan=lifespan)
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
+    allow_origins=[
+        "http://localhost:8080",
+        "https://pdepth.xyz",
+        "http://localhost:3000",
+        "http://127.0.0.1:8080"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
-
-# -----------------------------
-# Helper Functions
-# -----------------------------
-def chunk_worker(text_slice, max_tokens=1024, min_words=50):
-    words = text_slice.split()
-    chunks = []
-    i = 0
-    while i < len(words):
-        j = i + 50
-        while j < len(words):
-            token_count = len(tokenizer.encode(" ".join(words[i:j]), truncation=False))
-            if token_count > max_tokens:
-                break
-            j += 10
-        chunk = " ".join(words[i:j-10])
-        if len(chunk.split()) >= min_words:
-            chunks.append(chunk)
-        i = j - 10
-    return chunks
-
-def chunk_text_parallel(text, workers=2, max_tokens=1024, min_words=50):
-    words = text.split()
-    if len(words) < 50:
-        return [text]
-
-    split_size = len(words) // workers or len(words)
-    slices = [" ".join(words[i:i + split_size]) for i in range(0, len(words), split_size)]
-
-    all_chunks = []
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        results = executor.map(chunk_worker, slices)
-        for result in results:
-            all_chunks.extend(result)
-    return all_chunks
-
-async def summarize_chunk(chunk, retries=3, delay=2):
-    url = f"https://router.huggingface.co/hf-inference/models/{MODEL_ID}"
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    payload = {"inputs": chunk, "parameters": {"max_length": 200, "min_length": 50}}
-
-    for attempt in range(1, retries + 1):
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(url, headers=headers, json=payload)
-                response.raise_for_status()
-                result = response.json()
-                if isinstance(result, list) and "summary_text" in result[0]:
-                    return result[0]["summary_text"]
-                return f"Unexpected response: {result}"
-        except Exception as e:
-            print(f"[WARN] Attempt {attempt} failed: {e}")
-            if attempt < retries:
-                await asyncio.sleep(delay)
-            else:
-                return f"[Error summarizing chunk]: {str(e)}"
-
-async def generate_summary_from_text(text: str) -> str:
-    """Generate summary from extracted text"""
-    chunks = chunk_text_parallel(text, workers=2, max_tokens=1024, min_words=50)
-    
-    summaries = []
-    for chunk in chunks:
-        summary = await summarize_chunk(chunk)
-        summaries.append(summary)
-        await asyncio.sleep(0.1)
-    
-    # Combine all chunk summaries
-    combined_summary = " ".join(summaries)
-    
-    # If combined summary is too long, summarize it again
-    if len(combined_summary.split()) > 200:
-        final_summary = await summarize_chunk(combined_summary)
-        return final_summary
-    
-    return combined_summary
 
 # -----------------------------
 # Models
@@ -121,123 +79,165 @@ class SummarizeRequest(BaseModel):
 class SummaryRequest(BaseModel):
     summary: str
 
+class ProcessingResponse(BaseModel):
+    message: str
+    filename: str
+    summary: str
+    videos: List[Dict[str, Any]]
+    status: str
+    upload_date: str
+
+# -----------------------------
+# Smart Chunking
+# -----------------------------
+def smart_chunk_text(text: str, max_words: int = 3000) -> List[str]:
+    import re
+    text = re.sub(r'\s+', ' ', text).strip()
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []
+    current_chunk = []
+    current_len = 0
+
+    for sentence in sentences:
+        word_count = len(sentence.split())
+        if current_len + word_count > max_words and current_chunk:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [sentence]
+            current_len = word_count
+        else:
+            current_chunk.append(sentence)
+            current_len += word_count
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+    return chunks
+
+async def generate_summary_from_text(text: str) -> str:
+    if not text.strip():
+        return "No content to summarize."
+
+    word_count = len(text.split())
+    if word_count < 600:
+        prompt = get_summary_prompt(text)
+        return await llm_generate_summary(prompt)
+
+    chunks = smart_chunk_text(text, 3000)
+    tasks = [llm_generate_summary(get_summary_prompt(chunk)) for chunk in chunks]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    summaries = [r for r in results if isinstance(r, str) and len(r.strip()) > 20]
+    if not summaries:
+        return "No valid summary could be generated."
+
+    combined = "\n\n---\n\n".join(summaries)
+    final_prompt = get_summary_prompt(combined)
+    final = await llm_generate_summary(final_prompt)
+    return final or "Summary could not be finalized."
+
+def get_summary_prompt(text: str) -> str:
+    word_count = len(text.split())
+    target_length = max(5, min(3690, int(word_count * 0.36)))
+    return f"""
+Please generate a clear and concise summary of the following text.
+Focus on the main ideas, key points, and essential conclusions.
+
+Target length: {target_length} words.
+Do not use markdown. Use plain text only.
+
+Text to summarize:
+{text.strip()}
+"""
+
 # -----------------------------
 # Routes
 # -----------------------------
-@app.post("/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    """Upload PDF and process it completely - extract text, generate summary, get video recommendations"""
+@app.get("/")
+async def root():
+    return {"message": "PDF Processing API", "version": "1.0.0"}
+
+@app.post("/upload-pdf", response_model=ProcessingResponse)
+@limiter.limit("5/minute")
+async def upload_pdf(request: Request, file: UploadFile = File(...)):
+    client_ip = request.client.host
+
+    if not is_allowed_upload(client_ip):
+        return JSONResponse(
+            {"error": "Hourly limit exceeded. Try again later.", "status": "rate_limited"},
+            status_code=429
+        )
+
     try:
         content = await file.read()
-        print(f"📄 Received file: {file.filename}, size: {len(content)} bytes")
+        if len(content) > 15 * 1024 * 1024:
+            return JSONResponse({"error": "File too large", "status": "too_large"}, status_code=413)
 
-        # Extract text from PDF
+        if not content.startswith(b"%PDF"):
+            return JSONResponse({"error": "Invalid PDF", "status": "invalid_pdf"}, status_code=400)
+
         text = extract_text_from_pdf(content)
-        if not text.strip():
-            return JSONResponse({"error": "No readable text found in PDF"}, status_code=400)
 
-        # Store initial data
-        pdf_data = {
-            "filename": file.filename,
-            "extracted_text": text,
-            "upload_date": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "processing_status": "processing",
-            "summary": "",
-            "videos": []
-        }
-        processed_pdfs[file.filename] = pdf_data
+# ✅ Block all rejection messages
+        rejection_phrases = [
+            "scanned", "not supported", "no readable text",
+            "too short", "document too short", "corrupted"
+        ]
+        if any(phrase in text.lower() for phrase in rejection_phrases):
+            return JSONResponse(
+                {"error": text, "status": "invalid_content"},
+                status_code=422
+            )
 
-        # Background processing - generate summary and get videos
-        asyncio.create_task(process_pdf_background(file.filename, text))
+        summary = await generate_summary_from_text(text)
+
+        try:
+            videos = await recommend_videos_from_summary(summary)
+        except Exception as e:
+            logger.warning(f"Video recommendation failed: {e}")
+            videos = []
+
+        increment_pdf_count(client_ip)
 
         return {
-            "message": "PDF uploaded successfully", 
+            "message": "PDF processed successfully",
             "filename": file.filename,
-            "status": "processing"
+            "summary": summary,
+            "videos": videos,
+            "status": "completed",
+            "upload_date": time.strftime("%Y-%m-%d %H:%M:%S")
         }
-    except Exception as e:
-        import traceback
-        print("🚨 Error while processing PDF:")
-        traceback.print_exc()
-        return JSONResponse({"error": str(e)}, status_code=500)
 
-async def process_pdf_background(filename: str, text: str):
-    """Background task to process PDF - generate summary and get video recommendations"""
-    try:
-        # Generate summary
-        summary = await generate_summary_from_text(text)
-        
-        # Get video recommendations
-        videos = recommend_videos_from_summary(summary)
-        
-        # Update stored data
-        if filename in processed_pdfs:
-            processed_pdfs[filename].update({
-                "summary": summary,
-                "videos": videos,
-                "processing_status": "completed"
-            })
-            print(f"✅ Completed processing for {filename}")
     except Exception as e:
-        print(f"❌ Error processing {filename}: {e}")
-        if filename in processed_pdfs:
-            processed_pdfs[filename].update({
-                "processing_status": "error",
-                "error": str(e)
-            })
-
-@app.get("/summaries")
-async def get_summaries(pdf: str = None):
-    """Get summary and video data for a specific PDF or all PDFs"""
-    try:
-        if pdf:
-            # Get specific PDF data
-            if pdf not in processed_pdfs:
-                raise HTTPException(status_code=404, detail="PDF not found")
-            
-            pdf_data = processed_pdfs[pdf]
-            return {
-                "summary": pdf_data.get("summary", ""),
-                "videos": pdf_data.get("videos", []),
-                "status": pdf_data.get("processing_status", "processing"),
-                "upload_date": pdf_data.get("upload_date", ""),
-                "error": pdf_data.get("error", "")
-            }
-        else:
-            # Get all PDFs data
-            return {"pdfs": processed_pdfs}
-    except HTTPException:
-        raise
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        logger.error(f"Upload error: {str(e)}")
+        return JSONResponse(
+            {"error": "Processing failed. Please try again.", "status": "error"},
+            status_code=500
+        )
 
 @app.post("/summarize")
-async def summarize_text(payload: SummarizeRequest):
-    """Direct text summarization endpoint (for manual text input)"""
-    text = payload.text.strip()
-    if not text:
-        return JSONResponse({"error": "No text provided"}, status_code=400)
-
+@limiter.limit("10/minute")
+async def summarize_text(request: Request, payload: SummarizeRequest):
     try:
+        text = payload.text.strip()
+        if not text:
+            return JSONResponse({"error": "No text provided"}, status_code=400)
         summary = await generate_summary_from_text(text)
-        return {"summary": summary}
+        return {"summary": summary, "status": "completed"}
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        logger.error(f"Summarization error: {e}")
+        return JSONResponse(
+            {"error": "Failed to summarize text."}, status_code=500
+        )
 
 @app.post("/recommend-videos")
-def recommend_videos(data: SummaryRequest):
-    """Get video recommendations from summary"""
+@limiter.limit("20/minute")
+async def recommend_videos(request: Request, data: SummaryRequest):
     try:
         recommendations = recommend_videos_from_summary(data.summary)
-        return {"success": True, "data": recommendations}
+        return {"success": True, "data": recommendations, "count": len(recommendations)}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        logger.error(f"Video recommendation failed: {e}")
+        return {"success": False, "error": "Could not fetch videos."}
 
 @app.get("/health")
-def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "message": "API is running"}
-
-@app.post("/protected-route")
-def protected_route(user=Depends(verify_token)):
-    return {"message": f"Hello, {user['email']}!"}
+async def health_check():
+    return {"status": "healthy"}

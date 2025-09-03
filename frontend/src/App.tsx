@@ -16,32 +16,19 @@ const queryClient = new QueryClient();
 
 const App = () => {
   useEffect(() => {
-    const initSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        localStorage.setItem("access_token", session.access_token);
-      }
-
-      // Listen for auth changes and keep token updated
-      const { data: listener } = supabase.auth.onAuthStateChange(
-        async (_event, session) => {
-          if (session) {
-            localStorage.setItem("access_token", session.access_token);
-          } else {
-            localStorage.removeItem("access_token");
-          }
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (session) {
+          localStorage.setItem("access_token", session.access_token);
+        } else {
+          localStorage.removeItem("access_token");
         }
-      );
+      }
+    );
 
-      return () => {
-        listener.subscription.unsubscribe();
-      };
+    return () => {
+      listener.subscription.unsubscribe();
     };
-
-    initSession();
   }, []);
 
   return (

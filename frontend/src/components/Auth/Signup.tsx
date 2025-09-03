@@ -248,18 +248,7 @@ const Signup = () => {
           
           {/* Stats */}
           <div className="grid grid-cols-3 gap-6 text-center">
-            <div>
-              <div className="text-3xl font-bold text-primary-glow">10K+</div>
-              <div className="text-white/80 text-sm">PDFs Summarized</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-primary-glow">98%</div>
-              <div className="text-white/80 text-sm">Accuracy Rate</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-primary-glow">5K+</div>
-              <div className="text-white/80 text-sm">Happy Students</div>
-            </div>
+      
           </div>
         </div>
       </div>

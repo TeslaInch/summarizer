@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,126 +18,82 @@ import {
 import PDFUpload from "./PDFUpload";
 import SummaryCard from "./SummaryCard";
 import VideoCard from "./VideoCard";
+import { supabase } from "@/supabaseClient";
 
-const DASHBOARD_URL = "http://localhost:8000"; // your backend base URL
+
 
 const Dashboard = () => {
   const [selectedTab, setSelectedTab] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [expandedSummaries, setExpandedSummaries] = useState<Set<number>>(new Set());
 
   const [summaries, setSummaries] = useState<any[]>([]);
   const [videos, setVideos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  const handleLogout = () => console.log("Logout clicked");
+   const navigate = useNavigate();
+
+const handleLogout = async () => {
+  await supabase.auth.signOut();
+  localStorage.removeItem("access_token");
+  navigate('/login');
+};
 
   const handleTabChange = (tab: string) => {
     setSelectedTab(tab);
     setSidebarOpen(false);
   };
 
-  // Poll for updates when PDFs are processing
-  const pollForUpdates = async (filenames: string[]) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        let allCompleted = true;
-        const updatedSummaries = [];
-        const updatedVideos = [];
-
-        for (const filename of filenames) {
-          const res = await fetch(`${DASHBOARD_URL}/summaries?pdf=${encodeURIComponent(filename)}`);
-          if (!res.ok) continue;
-
-          const data = await res.json();
-          
-          // Create summary object
-          const summaryObj = {
-            id: Date.now() + Math.random(), // Generate unique ID
-            title: filename.replace('.pdf', ''),
-            summary: data.summary || "Processing...",
-            uploadDate: data.upload_date || new Date().toISOString(),
-            processingStatus: data.status || "processing",
-            author: "Unknown", // You can extract this from PDF metadata if needed
-          };
-
-          updatedSummaries.push(summaryObj);
-
-          // Add videos if available
-          if (data.videos && Array.isArray(data.videos)) {
-            const formattedVideos = data.videos.map((video, index) => ({
-              id: Date.now() + index + Math.random(),
-              title: video.title || "Video Title",
-              channel: video.channel || "Unknown Channel",
-              duration: video.duration || "0:00",
-              thumbnail: video.thumbnail || "",
-              url: video.url || "#"
-            }));
-            updatedVideos.push(...formattedVideos);
-          }
-
-          if (data.status !== "completed") {
-            allCompleted = false;
-          }
-        }
-
-        // Update state
-        setSummaries(prev => {
-          // Remove old entries for these files and add new ones
-          const filtered = prev.filter(s => !filenames.some(f => s.title === f.replace('.pdf', '')));
-          return [...filtered, ...updatedSummaries];
-        });
-
-        setVideos(prev => {
-          // For videos, we'll replace all videos (you might want to be more sophisticated)
-          return updatedVideos;
-        });
-
-        // Stop polling when all are completed
-        if (allCompleted) {
-          clearInterval(pollInterval);
-          setLoading(false);
-        }
-
-      } catch (err) {
-        console.error("Error polling for updates:", err);
-      }
-    }, 2000); // Poll every 2 seconds
-
-    // Stop polling after 5 minutes max
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      setLoading(false);
-    }, 300000);
+  // Toggle expanded view for summaries
+  const toggleSummaryExpanded = (summaryId: number) => {
+    const newExpanded = new Set(expandedSummaries);
+    if (newExpanded.has(summaryId)) {
+      newExpanded.delete(summaryId);
+    } else {
+      newExpanded.add(summaryId);
+    }
+    setExpandedSummaries(newExpanded);
   };
 
-  const handleUploadComplete = async (uploadedFileNames: string[]) => {
-    console.log("Upload completed for:", uploadedFileNames);
-    setLoading(true);
-    
-    // Start polling for updates
-    pollForUpdates(uploadedFileNames);
-    
-    // Immediately try to get any available data
-    try {
-      for (const filename of uploadedFileNames) {
-        const res = await fetch(`${DASHBOARD_URL}/summaries?pdf=${encodeURIComponent(filename)}`);
-        if (res.ok) {
-          const data = await res.json();
-          
-          const summaryObj = {
-            id: Date.now() + Math.random(),
-            title: filename.replace('.pdf', ''),
-            summary: data.summary || "Processing...",
-            uploadDate: data.upload_date || new Date().toISOString(),
-            processingStatus: data.status || "processing",
-            author: "Unknown",
-          };
+  // Create extended details for a summary (mock data - you can enhance this)
+  const getExtendedDetails = (summary: any) => {
+    return {
+      fullSummary: summary.summary, // Use the actual summary as the full summary
+      keyPoints: summary.summary.split('.').filter(point => point.trim().length > 20).slice(0, 5).map(point => point.trim() + '.'),
+    };
+  };
 
-          setSummaries(prev => [...prev, summaryObj]);
-        }
+  // Handle successful PDF upload and processing
+  const handleUploadComplete = (result: any) => {
+    console.log("PDF processing completed:", result);
+    
+    if (result.summary) {
+      // Create summary object
+      const summaryObj = {
+        id: Date.now() + Math.random(),
+        title: result.filename.replace('.pdf', ''),
+        summary: result.summary,
+        uploadDate: result.upload_date || new Date().toISOString(),
+        processingStatus: "completed",
+        author: "Unknown", // You can extract this from PDF metadata if needed
+      };
+
+      // Update state with summary
+      setSummaries(prev => [...prev, summaryObj]);
+
+      // Handle videos - FIXED: Use result.videos instead of result.data
+      if (result.videos && Array.isArray(result.videos) && result.videos.length > 0) {
+        const formattedVideos = result.videos.map((video: any, index: number) => ({
+          id: Date.now() + index + Math.random(),
+          title: video.title || "Video Title",
+          channel: video.channel || "Unknown Channel",
+          duration: video.duration || "0:00",
+          thumbnail: video.thumbnail || "",
+          url: video.url || "#"
+        }));
+        setVideos(prev => [...prev, ...formattedVideos]);
+      } else {
+        console.log("No videos found in result:", result.videos);
       }
-    } catch (err) {
-      console.error("Error fetching initial data:", err);
     }
   };
 
@@ -162,10 +119,7 @@ const Dashboard = () => {
             </div>
 
             <div className="flex items-center space-x-4">
-              <Button variant="ghost" size="sm" className="hidden sm:flex">
-                <Search className="h-4 w-4 mr-2" />
-                Search PDFs, summaries...
-              </Button>
+             
               <Button variant="ghost" size="sm" className="hidden sm:flex">
                 <Settings className="h-4 w-4" />
               </Button>
@@ -192,25 +146,29 @@ const Dashboard = () => {
           >
             <div className="p-4 bg-card rounded-lg border shadow-sm m-4 lg:m-0">
               <nav className="space-y-1">
-              {["dashboard","my-pdfs","summaries","videos"].map((tab) => {
-                const icons: any = { dashboard: BookOpen, "my-pdfs": FileText, summaries: Clock, videos: Play };
-                const IconComponent = icons[tab];
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => handleTabChange(tab)}
-                    className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                      selectedTab === tab
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <IconComponent className="mr-3 h-4 w-4" />
-                    {tab.charAt(0).toUpperCase() + tab.slice(1).replace("-", " ")}
-                  </button>
-                );
-              })}
-
+                {["dashboard","my-pdfs","summaries","videos"].map((tab) => {
+                  const icons: { [key: string]: React.ComponentType<{ className?: string }> } = { 
+                    dashboard: BookOpen, 
+                    "my-pdfs": FileText, 
+                    summaries: Clock, 
+                    videos: Play 
+                  };
+                  const IconComponent = icons[tab];
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => handleTabChange(tab)}
+                      className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                        selectedTab === tab
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <IconComponent className="mr-3 h-4 w-4" />
+                      {tab.charAt(0).toUpperCase() + tab.slice(1).replace("-", " ")}
+                    </button>
+                  );
+                })}
               </nav>
             </div>
           </div>
@@ -230,14 +188,6 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* Show loading state */}
-                {loading && (
-                  <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                    <p className="text-gray-600">Processing your PDF... This may take a moment.</p>
-                  </div>
-                )}
-
                 {/* Recent Activity */}
                 <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
                   {summaries.length > 0 && (
@@ -245,11 +195,16 @@ const Dashboard = () => {
                       <CardHeader>
                         <CardTitle className="flex items-center">
                           <FileText className="mr-2 h-5 w-5" />
-                          Recent Summary
+                          Latest Summary
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <SummaryCard pdf={summaries[summaries.length - 1]} />
+                        <SummaryCard 
+                          pdf={summaries[summaries.length - 1]} 
+                          expanded={expandedSummaries.has(summaries[summaries.length - 1]?.id)}
+                          onViewDetails={() => toggleSummaryExpanded(summaries[summaries.length - 1]?.id)}
+                          extendedDetails={expandedSummaries.has(summaries[summaries.length - 1]?.id) ? getExtendedDetails(summaries[summaries.length - 1]) : undefined}
+                        />
                       </CardContent>
                     </Card>
                   )}
@@ -263,13 +218,22 @@ const Dashboard = () => {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        {videos.slice(0, 3).map((video, idx) => (
-                          <VideoCard key={video.id || idx} video={video} />
+                        {videos.slice(-3).map((video) => (
+                          <VideoCard key={video.id} video={video} />
                         ))}
                       </CardContent>
                     </Card>
                   )}
                 </div>
+
+                {/* Empty State */}
+                {summaries.length === 0 && (
+                  <div className="text-center py-12">
+                    <FileText className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+                    <h3 className="text-xl font-medium text-gray-900 mb-2">No PDFs processed yet</h3>
+                    <p className="text-gray-500">Upload your first PDF to see summaries and video recommendations here.</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -281,7 +245,13 @@ const Dashboard = () => {
                 </div>
                 <div className="grid gap-6">
                   {summaries.map((summary) => (
-                    <SummaryCard key={summary.id} pdf={summary} expanded />
+                    <SummaryCard 
+                      key={summary.id} 
+                      pdf={summary} 
+                      expanded={expandedSummaries.has(summary.id)}
+                      onViewDetails={() => toggleSummaryExpanded(summary.id)}
+                      extendedDetails={expandedSummaries.has(summary.id) ? getExtendedDetails(summary) : undefined}
+                    />
                   ))}
                   {summaries.length === 0 && (
                     <div className="text-center py-12 text-gray-500">
@@ -305,7 +275,13 @@ const Dashboard = () => {
                   {summaries
                     .filter((summary) => summary.processingStatus === "completed")
                     .map((summary) => (
-                      <SummaryCard key={summary.id} pdf={summary} expanded />
+                      <SummaryCard 
+                        key={summary.id} 
+                        pdf={summary} 
+                        expanded={expandedSummaries.has(summary.id)}
+                        onViewDetails={() => toggleSummaryExpanded(summary.id)}
+                        extendedDetails={expandedSummaries.has(summary.id) ? getExtendedDetails(summary) : undefined}
+                      />
                     ))}
                   {summaries.filter(s => s.processingStatus === "completed").length === 0 && (
                     <div className="text-center py-12 text-gray-500">
