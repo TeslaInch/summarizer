@@ -16,7 +16,7 @@ interface PDFUploadProps {
   onUploadComplete?: (result: any) => void;
 }
 
-const BACKEND_URL = "http://localhost:8000/upload-pdf";
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL + "/upload-pdf";
 
 const PDFUpload = ({ onUploadComplete }: PDFUploadProps) => {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
