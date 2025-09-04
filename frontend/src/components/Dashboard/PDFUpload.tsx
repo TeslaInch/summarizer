@@ -184,7 +184,7 @@ const PDFUpload = ({ onUploadComplete }: PDFUploadProps) => {
                 Drop your PDF here or click to browse
               </h3>
               <p className="text-gray-600 mb-6">
-                Supports PDF files up to 50MB • One file at a time
+                Supports PDF files up to 15MB • One file at a time
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">

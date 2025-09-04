@@ -72,7 +72,7 @@ const Login = () => {
 
           {/* Welcome Back Header */}
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-foreground">Welcome Back to StudyPDF</h1>
+            <h1 className="text-3xl font-bold text-foreground">Welcome Back to PDepth</h1>
             <p className="text-muted-foreground">
               Start summarizing PDFs and watching related videos instantly
             </p>
