@@ -87,4 +87,6 @@ Connect to Backend
 In frontend/.env:
 
 env
+SUPABASE_URL
+SUPABSE_ANON_KEY
 VITE_API_BASE_URL=http://localhost:8000
