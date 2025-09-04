@@ -8,3 +8,6 @@ google-generativeai
 groq
 supabase
 uvicorn
+python-multipart
+aiofiles
+requests
