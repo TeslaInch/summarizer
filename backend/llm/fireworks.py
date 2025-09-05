@@ -12,10 +12,11 @@ api_key = os.getenv("FIREWORKS_API_KEY")
 if not api_key:
     logger.warning("FIREWORKS_API_KEY not set")
 
-# Use Fireworks with OpenAI client
+# Use Fireworks with OpenAI client + 60s timeout
 client = AsyncOpenAI(
-    base_url="https://api.fireworks.ai/inference/v1",
-    api_key=api_key
+    base_url="https://api.fireworks.ai/inference/v1",  # ✅ Fixed: removed trailing space
+    api_key=api_key,
+    timeout=60.0  # ✅ 60-second timeout for all requests
 ) if api_key else None
 
 async def summarize_with_fireworks(prompt: str, model: str = "accounts/fireworks/models/llama-v3p1-8b-instruct") -> str:

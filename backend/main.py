@@ -217,12 +217,16 @@ async def upload_pdf(request: Request, file: UploadFile = File(...)):
         logger.info(f"✅ Summary generated. Length: {len(summary)}")
 
         # Get videos
-        try:
-            videos = await recommend_videos_from_summary(summary)
-            logger.info(f"🎥 Found {len(videos)} video recommendations")
-        except Exception as e:
-            logger.warning(f"📹 Video recommendation failed: {e}")
+        if "could not generate summary" in summary.lower() or len(summary) < 100:
             videos = []
+            logger.info("ℹ️ Skipping video recommendations due to poor summary.")
+        else:
+            try:
+                videos = await recommend_videos_from_summary(summary)
+                logger.info(f"🎥 Found {len(videos)} video recommendations")
+            except Exception as e:
+                logger.warning(f"📹 Video recommendation failed: {e}")
+                videos = []
 
         # Success: increment count
         increment_pdf_count(client_ip)
