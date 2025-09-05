@@ -41,7 +41,7 @@ const PDFUpload = ({ onUploadComplete }: PDFUploadProps) => {
     }
 
     // Validate file size (50MB max)
-    if (file.size > 50 * 1024 * 1024) {
+    if (file.size > 15 * 1024 * 1024) {
       showToast("File too large", "Please upload files smaller than 50MB.", "destructive");
       return;
     }

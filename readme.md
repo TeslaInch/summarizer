@@ -66,11 +66,13 @@ env
 GEMINI_API_KEY=your_gemini_api_key
 GROQ_API_KEY=your_groq_api_key
 YOUTUBE_API_KEY=your_youtube_api_key
+FIREWORKS_API_KEY=your_fireworks_api_key
 🔑 Get your keys: 
 
 Gemini: Google AI Studio
 Groq: Groq Console
 YouTube: Google Cloud Console
+Fireworks: Fireworks.ai 
 Run the Backend
 
 uvicorn main:app --reload

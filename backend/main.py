@@ -158,47 +158,75 @@ Text to summarize:
 async def root():
     return {"message": "PDF Processing API", "version": "1.0.0"}
 
+
 @app.post("/upload-pdf", response_model=ProcessingResponse)
 @limiter.limit("5/minute")
 async def upload_pdf(request: Request, file: UploadFile = File(...)):
     client_ip = request.client.host
+    logger.info(f"📥 Upload initiated from {client_ip}")
 
+    # Rate limit
     if not is_allowed_upload(client_ip):
+        logger.warning(f"🚨 Rate limit exceeded for {client_ip}")
         return JSONResponse(
             {"error": "Hourly limit exceeded. Try again later.", "status": "rate_limited"},
             status_code=429
         )
 
     try:
+        # Read file
+        logger.info(f"📄 Reading file: '{file.filename}' ({file.size} bytes)")
         content = await file.read()
+
+        # File size check
         if len(content) > 15 * 1024 * 1024:
-            return JSONResponse({"error": "File too large", "status": "too_large"}, status_code=413)
+            logger.warning(f"❌ File too large: {len(content)} bytes from {client_ip}")
+            return JSONResponse(
+                {"error": "File too large", "status": "too_large"},
+                status_code=413
+            )
 
+        # PDF header check
         if not content.startswith(b"%PDF"):
-            return JSONResponse({"error": "Invalid PDF", "status": "invalid_pdf"}, status_code=400)
+            logger.warning(f"❌ Invalid PDF header from {client_ip}. First bytes: {content[:10]}")
+            return JSONResponse(
+                {"error": "Invalid PDF", "status": "invalid_pdf"},
+                status_code=400
+            )
 
+        # Extract text
+        logger.info("🔍 Starting text extraction...")
         text = extract_text_from_pdf(content)
+        logger.info(f"📝 Text extracted. Length: {len(text)}, Preview: '{text[:200]}...'")
 
-# ✅ Block all rejection messages
+        # Rejection phrases
         rejection_phrases = [
             "scanned", "not supported", "no readable text",
             "too short", "document too short", "corrupted"
         ]
         if any(phrase in text.lower() for phrase in rejection_phrases):
+            logger.warning(f"🚫 Rejected content: '{text[:100]}...'")
             return JSONResponse(
                 {"error": text, "status": "invalid_content"},
                 status_code=422
             )
 
+        # Generate summary
+        logger.info("🧠 Starting summarization pipeline...")
         summary = await generate_summary_from_text(text)
+        logger.info(f"✅ Summary generated. Length: {len(summary)}")
 
+        # Get videos
         try:
             videos = await recommend_videos_from_summary(summary)
+            logger.info(f"🎥 Found {len(videos)} video recommendations")
         except Exception as e:
-            logger.warning(f"Video recommendation failed: {e}")
+            logger.warning(f"📹 Video recommendation failed: {e}")
             videos = []
 
+        # Success: increment count
         increment_pdf_count(client_ip)
+        logger.info("🎉 Upload completed successfully")
 
         return {
             "message": "PDF processed successfully",
@@ -210,7 +238,8 @@ async def upload_pdf(request: Request, file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        logger.error(f"Upload error: {str(e)}")
+        # This will now catch and log the *exact* error
+        logger.error(f"💥 CRITICAL: Upload failed with error: {type(e).__name__}: {str(e)}", exc_info=True)
         return JSONResponse(
             {"error": "Processing failed. Please try again.", "status": "error"},
             status_code=500

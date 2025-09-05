@@ -1,5 +1,6 @@
 # llm/fallback.py
 from .gemini import summarize_with_gemini
+from .fireworks import summarize_with_fireworks  # Make sure this file exists
 from .groq import summarize_with_groq
 import asyncio
 import logging
@@ -39,7 +40,7 @@ async def generate_summary(text: str) -> str:
         logger.warning("Invalid input blocked: %s", text[:100])
         return "Summary could not be generated. The content may be invalid or unsupported."
 
-    # ✅ 2. Try Gemini
+    # ✅ 2. Try Gemini first
     try:
         gemini_prompt = get_summary_prompt(text)
         result = await summarize_with_gemini(gemini_prompt)
@@ -49,9 +50,19 @@ async def generate_summary(text: str) -> str:
     except Exception as e:
         logger.error(f"❌ Gemini failed: {e}")
 
-    # ✅ 3. Try Groq (only if original text is still valid)
+    # ✅ 3. Try Fireworks (second choice)
     try:
-        groq_prompt = get_summary_prompt(text)  # Fresh prompt
+        fireworks_prompt = get_summary_prompt(text)
+        result = await summarize_with_fireworks(fireworks_prompt)
+        if result and len(result.strip()) > 50 and "error" not in result.lower():
+            logger.info("✅ Success with Fireworks")
+            return result
+    except Exception as e:
+        logger.error(f"❌ Fireworks failed: {e}")
+
+    # ✅ 4. Try Groq (final fallback)
+    try:
+        groq_prompt = get_summary_prompt(text)
         result = await summarize_with_groq(groq_prompt)
         if result and len(result.strip()) > 50 and "error" not in result.lower():
             logger.info("✅ Success with Groq")
@@ -59,5 +70,5 @@ async def generate_summary(text: str) -> str:
     except Exception as e:
         logger.error(f"❌ Groq failed: {e}")
 
-    # ✅ 4. Both failed
+    # ✅ 5. All providers failed
     return "Summary could not be generated. Please try again later."
