@@ -4,6 +4,9 @@ import os
 import re
 from typing import List, Dict, Any
 from llm.fallback import generate_summary as llm_generate_summary
+import logging
+
+logger = logging.getLogger(__name__)
 
 # YouTube API Config
 API_KEY = os.getenv("YOUTUBE_API_KEY")
@@ -14,7 +17,7 @@ TRUSTED_CHANNELS = {
     "3blue1brown", "statquest", "crashcourse", "khanacademy", "andrew ng",
     "veritasium", "ted-ed", "numberphile", "deepmind", "sentdex",
     "machinelearningmemo", "freecodecamp", "mit", "stanford", "harvard",
-    "aws", "googlecloud", "nasa", "ted", "tedtalks", "pewresearch"
+    "aws", "googlecloud", "nasa", "ted", "pewresearch"
 }
 
 # Quality general education (Tier 2 - acceptable if Tier 1 fails)
@@ -33,10 +36,11 @@ BLOCKED_WORDS = {
 
 def get_channel_tier(channel_name: str) -> int:
     """Return 1 (trusted), 2 (quality), or 3 (unknown)"""
-    name = channel_name.lower()
-    if any(trusted in name for trusted in TRUSTED_CHANNELS):
+    name = channel_name.lower().strip()
+    name_words = re.split(r'[\s\-_\.&]+', name)
+    if any(t in name_words for t in TRUSTED_CHANNELS):
         return 1
-    if any(quality in name for quality in QUALITY_CHANNELS):
+    if any(q in name_words for q in QUALITY_CHANNELS):
         return 2
     return 3
 
@@ -46,16 +50,9 @@ def is_blocked_title(title: str) -> bool:
     return any(word in title_lower for word in BLOCKED_WORDS)
 
 async def generate_search_queries(summary: str, max_queries: int = 2) -> list:
-    """
-    Generate YouTube search queries from a summary.
-    1. Try LLM to generate natural, searchable queries
-    2. If that fails, fall back to 'main phrase + tutorial/explained'
-    3. Return empty list if no valid queries
-    """
     if not summary or len(summary.strip()) < 10:
         return []
 
-    # Step 1: Use LLM to generate natural search queries
     try:
         prompt = f"""
         Based on the following text, generate up to {max_queries} concise and realistic YouTube search queries.
@@ -74,7 +71,6 @@ async def generate_search_queries(summary: str, max_queries: int = 2) -> list:
         queries = []
         for line in response.split('\n'):
             line = line.strip()
-            # Skip empty, numbered, or too short lines
             if not line or len(line) < 5 or line[0].isdigit() or line.startswith(('-', '*')):
                 continue
             queries.append(line)
@@ -82,49 +78,47 @@ async def generate_search_queries(summary: str, max_queries: int = 2) -> list:
                 break
 
         if queries:
+            logger.info(f"LLM generated queries: {queries}")
             return queries
     except Exception as e:
-        print(f"LLM query generation failed: {e}")
+        logger.error(f"LLM query generation failed: {e}")
 
-    # Step 2: Fallback — extract main phrase and add 'tutorial' or 'explained'
+    # Fallback
     try:
         words = summary.strip().split()
-        if len(words) == 0:
+        if len(words) < 3:
             return []
 
-        # Take first 3–5 meaningful words
         key_phrase = ' '.join([w.strip('.,:;()') for w in words[:5]])
         if len(key_phrase) > 10:
-            return [
-                f"{key_phrase} tutorial",
-                f"{key_phrase} explained"
-            ][:max_queries]
+            fallbacks = [
+                f"Introduction to {key_phrase}",
+                f"What is {key_phrase}?",
+                f"{key_phrase} explained",
+                f"{key_phrase} lecture"
+            ]
+            logger.info(f"Using fallback queries: {fallbacks[:max_queries]}")
+            return fallbacks[:max_queries]
     except Exception as e:
-        print(f"Fallback query generation failed: {e}")
+        logger.error(f"Fallback query generation failed: {e}")
 
-    # No valid queries
     return []
 
 def sanitize_query(query: str) -> str:
-    """Remove invalid characters from query"""
     query = re.sub(r'[^\w\s\-:&]', '', query)
     return query.strip()
 
 async def recommend_videos_from_summary(summary: str, min_tier1: int = 2) -> List[Dict[str, Any]]:
-    """
-    Recommend high-quality YouTube videos based on a summary.
-    Uses LLM to generate smart queries and applies tiered filtering.
-    Returns empty list if summary is invalid.
-    """
-    # ✅ Skip if summary failed
     if not summary or any(phrase in summary.lower() for phrase in [
         "could not generate", "try again", "high demand", "summary could not be finalized"
     ]):
+        logger.warning("Skipping video recommendation: invalid summary")
         return []
 
     try:
         queries = await generate_search_queries(summary)
         if not queries:
+            logger.warning("No queries generated for video search")
             return []
 
         all_videos = []
@@ -141,7 +135,7 @@ async def recommend_videos_from_summary(summary: str, min_tier1: int = 2) -> Lis
                 "key": API_KEY,
                 "maxResults": 10,
                 "type": "video",
-                "order": "rating"  # Prioritize quality over views
+                "order": "relevance"  # Changed to relevance for better topic match
             }
 
             try:
@@ -149,7 +143,7 @@ async def recommend_videos_from_summary(summary: str, min_tier1: int = 2) -> Lis
                 response.raise_for_status()
                 data = response.json()
             except Exception as e:
-                print(f"Error fetching YouTube results for '{query}': {e}")
+                logger.error(f"Error fetching YouTube results for '{query}': {e}")
                 continue
 
             for item in data.get("items", []):
@@ -165,7 +159,6 @@ async def recommend_videos_from_summary(summary: str, min_tier1: int = 2) -> Lis
                     if video_id in seen_video_ids or is_blocked_title(title):
                         continue
 
-                    # Add video with tier info
                     tier = get_channel_tier(channel)
                     all_videos.append({
                         "id": video_id,
@@ -180,23 +173,24 @@ async def recommend_videos_from_summary(summary: str, min_tier1: int = 2) -> Lis
                     })
                     seen_video_ids.add(video_id)
                 except Exception as e:
-                    print(f"Error parsing video item: {e}")
+                    logger.error(f"Error parsing video item: {e}")
                     continue
 
-        # Sort: Tier 1 first, then 2, then 3
+        logger.info(f"Found {len(all_videos)} raw videos from YouTube")
+
         all_videos.sort(key=lambda x: (x["tier"], x["publishedAt"]))
 
-        # Prioritize Tier 1, then fill with Tier 2/3
         final_videos = [v for v in all_videos if v["tier"] == 1]
         remaining = 6 - len(final_videos)
         if remaining > 0:
             final_videos += [v for v in all_videos if v["tier"] == 2][:remaining]
-            remaining = 6 - len(final_videos)
+        remaining = 6 - len(final_videos)
         if remaining > 0:
             final_videos += [v for v in all_videos if v["tier"] == 3][:remaining]
 
+        logger.info(f"Returning {len(final_videos)} final video recommendations")
         return final_videos[:6]
 
     except Exception as e:
-        print(f"Unexpected error in recommend_videos_from_summary: {e}")
+        logger.error(f"Unexpected error in recommend_videos_from_summary: {e}")
         return []
