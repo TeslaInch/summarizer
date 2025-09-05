@@ -63,7 +63,10 @@ app.add_middleware(
         "http://localhost:8080",
         "https://pdepth.xyz",
         "http://localhost:3000",
-        "http://127.0.0.1:8080"
+        "http://127.0.0.1:8080",
+        "https://www.pdepth.xyz",
+        "https://pdepth.vercel.app",
+        "https://www.pdepth.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
