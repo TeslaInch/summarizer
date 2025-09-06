@@ -69,7 +69,7 @@ const Landing = () => {
             <div className="hidden md:flex items-center space-x-8">
               <a href="#features" className="text-muted-foreground hover:text-foreground transition-colors">Features</a>
               <a href="#how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">How it Works</a>
-              <a href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors">Pricing</a>
+              <a href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors"></a>
             </div>
             <div className="flex items-center space-x-3 mt-2 md:mt-0">
               <Button variant="ghost" onClick={() => navigate("/login")}>

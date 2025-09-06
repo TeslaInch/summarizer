@@ -9,6 +9,7 @@ import {
   FileText,
   LogOut,
   Menu,
+  MessageSquare,
   Play,
   Search,
   Settings,
@@ -100,42 +101,43 @@ const handleLogout = async () => {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-background">
-      {/* Top Navigation */}
-      <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="lg:hidden"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-              </Button>
-              <div className="p-2 rounded-lg">
-                <img src="/pdepthlogo.png" alt="PDepth Logo" className="h-6 w-6 object-contain" />
-              </div>
-              <span className="text-xl font-bold text-foreground">PDepth</span>
+return (
+  <div className="min-h-screen bg-background">
+    {/* Top Navigation */}
+    <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="lg:hidden"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
+            <div className="p-2 rounded-lg">
+              <img src="/pdepthlogo.png" alt="PDepth Logo" className="h-6 w-6 object-contain" />
             </div>
+            <span className="text-xl font-bold text-foreground">PDepth</span>
+          </div>
 
-            <div className="flex items-center space-x-4">
-             
-              <Button variant="ghost" size="sm" className="hidden sm:flex">
-                <Settings className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="sm" className="hidden sm:flex">
-                <User className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={handleLogout}>
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
+          <div className="flex items-center space-x-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden sm:flex"
+              onClick={() => window.open('https://tally.so/r/wgBjeO', '_blank')}
+            >
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
         </div>
-      </nav>
+      </div>
+    </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex gap-8 relative">
@@ -318,7 +320,26 @@ const handleLogout = async () => {
           </div>
         </div>
       </div>
+      {/* Footer */}
+      <footer className="bg-background border-t py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col md:flex-row justify-between items-center">
+            <div className="flex items-center space-x-2 mb-4 md:mb-0">
+              <div className="p-2 bg-study-gradient rounded-lg">
+                <BookOpen className="h-5 w-5 text-white" />
+              </div>
+              <span className="text-lg font-bold text-foreground">PDepth</span>
+            </div>
+            <div className="flex space-x-8 text-muted-foreground">
+            </div>
+          </div>
+          <div className="mt-8 pt-8 border-t text-center text-muted-foreground">
+            <p>&copy; 2025 PDepth. All rights reserved. Made for students worldwide.</p>
+          </div>
+        </div>
+      </footer>
     </div>
+    
   );
 };
 
