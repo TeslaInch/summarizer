@@ -331,6 +331,7 @@ return (
               <span className="text-lg font-bold text-foreground">PDepth</span>
             </div>
             <div className="flex space-x-8 text-muted-foreground">
+              <a href="https://tally.so/r/wgBjeO" className="hover:text-foreground transition-colors">Feedback</a>
             </div>
           </div>
           <div className="mt-8 pt-8 border-t text-center text-muted-foreground">
