@@ -34,7 +34,7 @@ def is_allowed_upload(ip: str) -> bool:
         user_pdf_count[ip] = {"count": 0, "reset_time": now + 3600}
     elif now > user_pdf_count[ip]["reset_time"]:
         user_pdf_count[ip] = {"count": 0, "reset_time": now + 3600}
-    return user_pdf_count[ip]["count"] < 5
+    return user_pdf_count[ip]["count"] < 3
 
 def increment_pdf_count(ip: str):
     if ip in user_pdf_count:
@@ -222,7 +222,7 @@ async def upload_pdf(request: Request, file: UploadFile = File(...)):
             logger.info("ℹ️ Skipping video recommendations due to poor summary.")
         else:
             try:
-                videos = await recommend_videos_from_summary(summary)
+                videos = recommend_videos_from_summary(summary)
                 logger.info(f"🎥 Found {len(videos)} video recommendations")
             except Exception as e:
                 logger.warning(f"📹 Video recommendation failed: {e}")
@@ -265,7 +265,7 @@ async def summarize_text(request: Request, payload: SummarizeRequest):
         )
 
 @app.post("/recommend-videos")
-@limiter.limit("20/minute")
+@limiter.limit("6/minute")
 async def recommend_videos(request: Request, data: SummaryRequest):
     try:
         recommendations = recommend_videos_from_summary(data.summary)
