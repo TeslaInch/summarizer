@@ -2,6 +2,7 @@
 from .gemini import summarize_with_gemini
 from .gemini2 import summarize_with_gemini2
 from .gemini3 import summarize_with_gemini3
+from .gemini4 import summarize_with_gemini4
 from .fireworks import summarize_with_fireworks
 from .groq import summarize_with_groq
 import logging
@@ -45,6 +46,7 @@ async def generate_summary(text: str) -> str:
         ("Gemini", lambda: summarize_with_gemini(prompt)),
         ("Gemini2", lambda: summarize_with_gemini2(prompt)),
         ("Gemini3", lambda: summarize_with_gemini3(prompt)),
+        ("Gemini4", lambda: summarize_with_gemini4(prompt)),
         ("Fireworks", lambda: summarize_with_fireworks(prompt)),
         ("Groq", lambda: summarize_with_groq(prompt)),
     ]
