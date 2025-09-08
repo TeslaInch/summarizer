@@ -139,7 +139,7 @@ async def generate_summary_from_text(text: str) -> str:
 
 def get_summary_prompt(text: str) -> str:
     word_count = len(text.split())
-    target_length = max(5, min(3690, int(word_count * 0.36)))
+    target_length = max(5, min(36900, int(word_count * 0.20)))
     return f"""
 Please generate a clear and concise summary of the following text.
 Focus on the main ideas, key points, and essential conclusions.
@@ -199,15 +199,21 @@ async def upload_pdf(request: Request, file: UploadFile = File(...)):
         text = extract_text_from_pdf(content)
         logger.info(f"📝 Text extracted. Length: {len(text)}, Preview: '{text[:200]}...'")
 
-        # Rejection phrases
-        rejection_phrases = [
-            "scanned", "not supported", "no readable text",
-            "too short", "document too short", "corrupted"
-        ]
-        if any(phrase in text.lower() for phrase in rejection_phrases):
+        REJECTION_INDICATORS = {
+            "Could not extract text from PDF. The file may be corrupted or encrypted.",
+            "Scanned PDFs are not supported. Please upload a text-based PDF.",
+            "Empty PDF: No pages found."
+        }
+
+        # Check if the returned text is a rejection message (short and matches known patterns)
+        if any(indicator in text.lower() for indicator in REJECTION_INDICATORS):
+            # ✅ Log the full text preview, but return a clean, safe error
             logger.warning(f"🚫 Rejected content: '{text[:100]}...'")
             return JSONResponse(
-                {"error": text, "status": "invalid_content"},
+                {
+                    "error": text.strip(),  # Still send the message, but it's now short
+                    "status": "invalid_content"
+                },
                 status_code=422
             )
 
